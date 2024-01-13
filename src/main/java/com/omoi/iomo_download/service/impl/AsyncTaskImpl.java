@@ -1,5 +1,6 @@
 package com.omoi.iomo_download.service.impl;
 
+import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.text.CharSequenceUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.ZipUtil;
@@ -82,8 +83,10 @@ public class AsyncTaskImpl implements AsyncTask {
             barrier.await();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.error("download osz error: {}", e.getLocalizedMessage());
             return CompletableFuture.completedFuture(null);
         } catch (BrokenBarrierException e) {
+            log.error("download osz error: {}", e.getLocalizedMessage());
             return CompletableFuture.completedFuture(null);
         }
 
@@ -92,6 +95,8 @@ public class AsyncTaskImpl implements AsyncTask {
         if (callback.isSuccess()) {
             return CompletableFuture.completedFuture(new DownloadInfo(setId, savePath));
         }
+
+        log.error("download osz error: {}", "download failed");
         return CompletableFuture.completedFuture(null);
     }
 
@@ -134,10 +139,11 @@ public class AsyncTaskImpl implements AsyncTask {
                 KookResponse kookResponse = mapper.readValue(json, KookResponse.class);
                 return CompletableFuture.completedFuture(kookResponse.getData().getUrl());
             }
+            return CompletableFuture.completedFuture(null);
         } catch (IOException e) {
             throw new ServiceException(e.getLocalizedMessage());
+        } finally {
+            FileUtil.del(unzipFolder);
         }
-
-        return CompletableFuture.completedFuture("test");
     }
 }

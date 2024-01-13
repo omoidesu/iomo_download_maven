@@ -3,7 +3,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/osu_iomo
     username: root
-    password: root
+    password: null
 
   jpa:
     hibernate:
@@ -11,3 +11,25 @@ spring:
     database: mysql
     show-sql: true
 
+dev:
+  proxy:
+    port: 7890
+
+download:
+  path: /home/ssd/osu
+
+osu:
+  username: iomo
+  password: iomo
+
+kook:
+  token: kook_token
+  assetUrl: https://www.kookapp.cn/api/v3/asset/create
+
+minio:
+  endpoint: http://127.0.0.1:9090
+  accessKey: username
+  secretKey: password
+  bucketName: iomo
+
+  url: external_access_address_here

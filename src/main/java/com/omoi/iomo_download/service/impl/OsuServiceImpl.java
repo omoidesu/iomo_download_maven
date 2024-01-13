@@ -4,6 +4,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.text.CharSequenceUtil;
 import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.ZipUtil;
 import cn.hutool.http.Header;
 import cn.hutool.http.HttpRequest;
@@ -15,6 +16,7 @@ import com.omoi.iomo_download.enums.MinioTypesEnum;
 import com.omoi.iomo_download.exception.ServiceException;
 import com.omoi.iomo_download.service.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +37,7 @@ import java.util.stream.Collectors;
 /**
  * @author omoi
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OsuServiceImpl implements OsuService {
@@ -69,6 +72,7 @@ public class OsuServiceImpl implements OsuService {
         HttpResponse login = null;
         try {
             index = HttpRequest.get(OSU_INDEX).execute();
+            log.info("login: index code: {}", index.getStatus());
             HttpCookie loginSession = index.getCookie("osu_session");
             HttpCookie csrfToken = index.getCookie("XSRF-TOKEN");
 
@@ -89,6 +93,7 @@ public class OsuServiceImpl implements OsuService {
                     .header("X-Csrf-Token", csrfToken.getValue())
                     .body(body)
                     .execute();
+            log.info("login: login code: {}", login.getStatus());
 
             HttpCookie userSession = login.getCookie("osu_session");
             HttpCookie userCsrfToken = login.getCookie("XSRF-TOKEN");
@@ -116,8 +121,11 @@ public class OsuServiceImpl implements OsuService {
                 .gt(OsuCookie::getExpireAt, System.currentTimeMillis())
                 .orderByDesc(OsuCookie::getCreateTime)
                 .last("limit 1")
-                .oneOpt()
-                .orElse(login());
+                .one();
+
+        if (ObjectUtil.isNull(cookie)) {
+            cookie = login();
+        }
 
         int size = setIdList.size();
         CountDownLatch latch = new CountDownLatch(size);
@@ -126,6 +134,12 @@ public class OsuServiceImpl implements OsuService {
         List<Future<DownloadInfo>> futureList = new ArrayList<>(size);
         for (String setId : setIdList) {
             futureList.add(task.downloadOsz(setId, cookie, latch));
+            int sleep = RandomUtil.randomInt(250, 750);
+            try {
+                Thread.sleep(sleep);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
 
         try {
@@ -140,7 +154,9 @@ public class OsuServiceImpl implements OsuService {
         for (Future<DownloadInfo> future : futureList) {
             try {
                 DownloadInfo downloadInfo = future.get();
-                infoList.add(downloadInfo);
+                if (ObjectUtil.isNotNull(downloadInfo)) {
+                    infoList.add(downloadInfo);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (ExecutionException e) {
@@ -195,6 +211,7 @@ public class OsuServiceImpl implements OsuService {
         // 查询本地是否已经有下载过的文件
         OszFile oszFile = oszService.lambdaQuery()
                 .eq(OszFile::getSetId, setId)
+                .last("limit 1")
                 .one();
 
         if (ObjectUtil.isNotNull(oszFile)) {
@@ -323,6 +340,8 @@ public class OsuServiceImpl implements OsuService {
             return minioService.uploadFile(fileName, inputStream, FileUtil.size(zipFile), MinioTypesEnum.BP.getType(), osuUserName);
         } catch (Exception e) {
             throw new ServiceException(MINIO_UPLOAD_FAILED);
+        } finally {
+            FileUtil.del(zipFile);
         }
     }
 }
