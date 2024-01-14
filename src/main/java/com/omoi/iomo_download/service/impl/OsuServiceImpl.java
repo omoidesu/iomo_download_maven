@@ -246,12 +246,12 @@ public class OsuServiceImpl implements OsuService {
     @Override
     public String uploadMusic(String setId, String musicFile) {
         // 查询是否已经上传过
-        OsuAudio audioAssert = audioService.lambdaQuery()
+        OsuAudio audioAsset = audioService.lambdaQuery()
                 .eq(OsuAudio::getSetId, setId)
                 .one();
 
-        if (ObjectUtil.isNotNull(audioAssert)) {
-            return audioAssert.getKookUrl();
+        if (ObjectUtil.isNotNull(audioAsset)) {
+            return audioAsset.getKookUrl();
         }
 
         // 查询谱面是否已经下载过
@@ -275,10 +275,10 @@ public class OsuServiceImpl implements OsuService {
         // 上传至kook
         Future<String> future = task.uploadFileToKook(oszFilePath, musicFile);
 
-        String kookAssertUrl;
+        String kookAssetUrl;
 
         try {
-            kookAssertUrl = future.get();
+            kookAssetUrl = future.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ServiceException("上传失败");
@@ -286,16 +286,16 @@ public class OsuServiceImpl implements OsuService {
             throw new ServiceException("上传失败");
         }
 
-        if (CharSequenceUtil.isEmpty(kookAssertUrl)) {
+        if (CharSequenceUtil.isEmpty(kookAssetUrl)) {
             throw new ServiceException("上传失败");
         }
 
         OsuAudio audio = new OsuAudio();
         audio.setSetId(setId);
-        audio.setKookUrl(kookAssertUrl);
+        audio.setKookUrl(kookAssetUrl);
         audioService.save(audio);
 
-        return kookAssertUrl;
+        return kookAssetUrl;
     }
 
     /**
