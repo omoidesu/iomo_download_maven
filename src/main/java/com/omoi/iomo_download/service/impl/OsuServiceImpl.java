@@ -26,7 +26,6 @@ import java.net.HttpCookie;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -71,19 +70,15 @@ public class OsuServiceImpl implements OsuService {
         HttpResponse index = null;
         HttpResponse login = null;
         try {
+            // 模拟浏览器登录osu.ppy.sh 获取cookie
             index = HttpRequest.get(OSU_INDEX).execute();
             log.info("login: index code: {}", index.getStatus());
             HttpCookie loginSession = index.getCookie("osu_session");
             HttpCookie csrfToken = index.getCookie("XSRF-TOKEN");
 
-            ObjectMapper mapper = new ObjectMapper();
-
-            var loginMap = new HashMap<String, Object>();
-            loginMap.put("token", csrfToken.getValue());
-            loginMap.put("username", username);
-            loginMap.put("password", password);
-
-            String body = mapper.writeValueAsString(loginMap);
+            // 模拟登录
+            Map<String, String> loginMap = Map.of("token", csrfToken.getValue(), "username", username, "password", password);
+            String json = new ObjectMapper().writeValueAsString(loginMap);
 
             login = HttpRequest.post(OSU_LOGIN)
                     .header(Header.COOKIE, CharSequenceUtil.format("XSRF-TOKEN={}; osu_session={}", csrfToken.getValue(), loginSession.getValue()))
@@ -91,13 +86,15 @@ public class OsuServiceImpl implements OsuService {
                     .header(Header.ORIGIN, "https://osu.ppy.sh")
                     .header(Header.REFERER, OSU_INDEX)
                     .header("X-Csrf-Token", csrfToken.getValue())
-                    .body(body)
+                    .body(json)
                     .execute();
             log.info("login: login code: {}", login.getStatus());
 
+            // 登录后的cookie
             HttpCookie userSession = login.getCookie("osu_session");
             HttpCookie userCsrfToken = login.getCookie("XSRF-TOKEN");
 
+            // 保存cookie
             OsuCookie cookie = OsuCookie.builder()
                     .session(userSession.getValue())
                     .token(userCsrfToken.getValue())
@@ -115,6 +112,12 @@ public class OsuServiceImpl implements OsuService {
         }
     }
 
+    /**
+     * 多set id批量下载
+     *
+     * @param setIdList set id list
+     * @return 下载信息列表
+     */
     private List<DownloadInfo> downloadOszList(List<String> setIdList) {
         // 查询是否有可用cookie
         OsuCookie cookie = cookieService.lambdaQuery()
@@ -134,7 +137,8 @@ public class OsuServiceImpl implements OsuService {
         List<Future<DownloadInfo>> futureList = new ArrayList<>(size);
         for (String setId : setIdList) {
             futureList.add(task.downloadOsz(setId, cookie, latch));
-            int sleep = RandomUtil.randomInt(250, 750);
+            // 随机休眠 防止429
+            int sleep = RandomUtil.randomInt(250, 500);
             try {
                 Thread.sleep(sleep);
             } catch (InterruptedException e) {
@@ -143,14 +147,15 @@ public class OsuServiceImpl implements OsuService {
         }
 
         try {
+            // 等待异步任务完成
             latch.await();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ServiceException(e.getLocalizedMessage());
         }
 
-        // 下载谱面本地路径
-        ArrayList<DownloadInfo> infoList = new ArrayList<>();
+        // osz的本地路径
+        List<DownloadInfo> infoList = new ArrayList<>();
         for (Future<DownloadInfo> future : futureList) {
             try {
                 DownloadInfo downloadInfo = future.get();
@@ -169,19 +174,21 @@ public class OsuServiceImpl implements OsuService {
             throw new ServiceException("下载失败");
         }
 
+        // 批量保存
         List<OszFile> oszList = infoList.stream()
-                .map(info -> {
-                    OszFile osz = new OszFile();
-                    osz.setPath(info.getFilePath().toString());
-                    osz.setSetId(info.getSetId());
-                    return osz;
-                })
+                .map(info -> OszFile.builder().path(info.getFilePath().toString()).setId(info.getSetId()).build())
                 .toList();
         oszService.saveBatch(oszList);
 
         return infoList;
     }
 
+    /**
+     * 单set下载
+     *
+     * @param setId set id
+     * @return osz文件路径
+     */
     private Path downloadOsz(String setId) {
         List<DownloadInfo> infoList = downloadOszList(List.of(setId));
         if (CollUtil.isEmpty(infoList)) {
@@ -214,19 +221,18 @@ public class OsuServiceImpl implements OsuService {
                 .last("limit 1")
                 .one();
 
+
+        Path filePath;
         if (ObjectUtil.isNotNull(oszFile)) {
             File osz = new File(oszFile.getPath());
             if (osz.isFile() && osz.exists()) {
-                // 上传至minio
-                try (InputStream inputStream = Files.newInputStream(Path.of(oszFile.getPath()))) {
-                    return minioService.uploadFile(setId + ".osz", inputStream, Files.size(Path.of(oszFile.getPath())), MinioTypesEnum.MAP.getType(), setId);
-                } catch (Exception e) {
-                    throw new ServiceException(MINIO_UPLOAD_FAILED);
-                }
+                filePath = osz.toPath();
+            } else {
+                filePath = downloadOsz(setId);
             }
+        } else {
+            filePath = downloadOsz(setId);
         }
-
-        Path filePath = downloadOsz(setId);
 
         // 上传至minio
         try (InputStream inputStream = Files.newInputStream(filePath)) {
@@ -290,6 +296,7 @@ public class OsuServiceImpl implements OsuService {
             throw new ServiceException("上传失败");
         }
 
+        // 保存到数据库
         OsuAudio audio = new OsuAudio();
         audio.setSetId(setId);
         audio.setKookUrl(kookAssetUrl);
@@ -307,13 +314,17 @@ public class OsuServiceImpl implements OsuService {
      */
     @Override
     public String createBpPack(String osuUserName, List<String> setIdList) {
+        // setIdList去重
+        setIdList = setIdList.stream().distinct().toList();
+
+        // 查询已经下载的谱面
         Map<String, String> existOsz = oszService.lambdaQuery()
                 .in(OszFile::getSetId, setIdList)
                 .list()
                 .stream()
-                .collect(Collectors.toMap(OszFile::getSetId, OszFile::getPath));
+                .collect(Collectors.toMap(OszFile::getSetId, OszFile::getPath, (k1, k2) -> k1));
 
-        // 待下载osz列表
+        // 未下载谱面
         List<String> notExistSetIds = setIdList.stream()
                 .filter(setId -> !existOsz.containsKey(setId))
                 .toList();

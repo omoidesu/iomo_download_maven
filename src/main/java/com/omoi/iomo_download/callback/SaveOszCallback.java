@@ -17,6 +17,8 @@ import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
 
 /**
+ * 下载谱面回调
+ *
  * @author omoi
  * @date 2024/1/12
  */
@@ -28,56 +30,44 @@ public class SaveOszCallback implements Callback {
     private Path savePath;
     private boolean success;
 
+    /**
+     * 下载失败回调
+     */
     @Override
     public void onFailure(@NotNull Call call, @NotNull IOException e) {
-        this.success = false;
         log.error("download osz error: {}", e.getMessage());
-        try {
-            this.barrier.await();
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-        } catch (BrokenBarrierException ex) {
-            // ignore
-        }
+        this.awaitBarrier(false);
     }
 
+    /**
+     * 下载成功回调
+     */
     @Override
     public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
-        log.info("download osz url: {}", response.request().url());
-        log.info("download osz code: {}", response.code());
+        log.info("download osz code: {}, url: {}", response.code(), response.request().url());
         log.info("save path: {}", this.savePath);
         if (response.code() == 200) {
             ResponseBody body = response.body();
             if (body == null) {
-                this.success = false;
-                try {
-                    barrier.await();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } catch (BrokenBarrierException e) {
-                    // ignore
-                }
+                this.awaitBarrier(false);
                 return;
             }
 
             Files.write(this.savePath, body.bytes(), StandardOpenOption.CREATE);
-            this.success = true;
-            try {
-                barrier.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (BrokenBarrierException e) {
-                // ignore
-            }
+            this.awaitBarrier(true);
         } else {
-            this.success = false;
-            try {
-                barrier.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (BrokenBarrierException e) {
-                // ignore
-            }
+            this.awaitBarrier(false);
+        }
+    }
+
+    private void awaitBarrier(boolean success) {
+        this.success = success;
+        try {
+            barrier.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (BrokenBarrierException e) {
+            // ignore
         }
     }
 }

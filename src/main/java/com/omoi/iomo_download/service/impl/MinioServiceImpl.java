@@ -35,6 +35,9 @@ public class MinioServiceImpl implements MinioService {
     private MinioClient client = null;
     private static final Long PART_SIZE = 5 * 1024 * 1024L;
 
+    /**
+     * 初始化minio客户端
+     */
     @PostConstruct
     private void init() throws ServerException, InsufficientDataException, ErrorResponseException, IOException, NoSuchAlgorithmException, InvalidKeyException, InvalidResponseException, XmlParserException, InternalException {
         if (ObjectUtil.isNotNull(client)) {

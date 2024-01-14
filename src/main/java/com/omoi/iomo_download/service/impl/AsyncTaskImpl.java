@@ -36,7 +36,7 @@ public class AsyncTaskImpl implements AsyncTask {
     @Value("${download.path}")
     private String downloadPath;
 
-    @Value("Bot ${kook.token}")
+    @Value("${kook.token}")
     private String kookAuthorization;
 
     @Value("${kook.assetUrl}")
@@ -55,6 +55,7 @@ public class AsyncTaskImpl implements AsyncTask {
     @Async("netThreadPool")
     @Override
     public Future<DownloadInfo> downloadOsz(String setId, OsuCookie cookie, CountDownLatch latch) {
+        // 如果设置了代理，使用代理
         OkHttpClient client;
         if (proxyPort != null) {
             client = new OkHttpClient.Builder()
@@ -64,12 +65,14 @@ public class AsyncTaskImpl implements AsyncTask {
             client = new OkHttpClient();
         }
 
+        // 构建请求
         Request request = new Request.Builder()
                 .url(OSU_SET + setId + "/download")
                 .addHeader("Cookie", CharSequenceUtil.format("XSRF-TOKEN={}; osu_session={}", cookie.getToken(), cookie.getSession()))
                 .addHeader("Referer", OSU_SET + setId)
                 .build();
 
+        // 构建回调
         CyclicBarrier barrier = new CyclicBarrier(2);
         Path savePath = Path.of(downloadPath, setId + ".osz");
         SaveOszCallback callback = SaveOszCallback.builder()
@@ -77,27 +80,32 @@ public class AsyncTaskImpl implements AsyncTask {
                 .barrier(barrier)
                 .build();
 
+        // 发送请求
         client.newCall(request).enqueue(callback);
 
         try {
+            // 等待回调完成
             barrier.await();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("download osz error: {}", e.getLocalizedMessage());
+            log.error("download osz failed: {}", e.getLocalizedMessage());
             return CompletableFuture.completedFuture(null);
         } catch (BrokenBarrierException e) {
-            log.error("download osz error: {}", e.getLocalizedMessage());
+            log.error("download osz failed: {}", e.getLocalizedMessage());
             return CompletableFuture.completedFuture(null);
         }
 
-        latch.countDown();
+        try {
+            if (callback.isSuccess()) {
+                return CompletableFuture.completedFuture(new DownloadInfo(setId, savePath));
+            }
 
-        if (callback.isSuccess()) {
-            return CompletableFuture.completedFuture(new DownloadInfo(setId, savePath));
+            log.error("download osz failed");
+            return CompletableFuture.completedFuture(null);
+        } finally {
+            // 待执行线程数减一
+            latch.countDown();
         }
-
-        log.error("download osz error: {}", "download failed");
-        return CompletableFuture.completedFuture(null);
     }
 
     /**
@@ -123,7 +131,7 @@ public class AsyncTaskImpl implements AsyncTask {
 
         MultipartBody body = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("file", targetFileName, RequestBody.create(MediaType.parse("multipart/form-data"), targetFile))
+                .addFormDataPart("file", targetFileName, RequestBody.Companion.create(targetFile, MediaType.parse("multipart/form-data")))
                 .build();
 
         Request request = new Request.Builder()
@@ -133,7 +141,7 @@ public class AsyncTaskImpl implements AsyncTask {
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
-            if (response.isSuccessful()) {
+            if (response.isSuccessful() && response.body() != null) {
                 String json = response.body().string();
                 ObjectMapper mapper = new ObjectMapper();
                 KookResponse kookResponse = mapper.readValue(json, KookResponse.class);
