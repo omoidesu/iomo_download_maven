@@ -58,10 +58,12 @@ public class SaveOszCallback implements Callback {
         } else if (response.code() == 404) {
             // ppy.sh禁止下载谱面，使用备用镜像
             String mirrorUrl = "https://beatconnect.io/b/" + this.setId;
+            log.info("mirror url: {}", mirrorUrl);
             Request request = new Request.Builder()
                     .url(mirrorUrl)
                     .build();
             try (Response newResponse = this.client.newCall(request).execute()) {
+                log.info("mirror download osz code: {}", newResponse.code());
                 if (newResponse.code() == 200) {
                     ResponseBody body = newResponse.body();
                     if (body == null) {

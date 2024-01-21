@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.omoi</groupId>
 	<artifactId>iomo_download</artifactId>
-	<version>0.5</version>
+	<version>0.5.1</version>
 	<name>iomo_download</name>
 	<description>backend for iomo bot</description>
 	<properties>
