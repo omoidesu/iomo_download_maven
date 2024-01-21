@@ -124,11 +124,8 @@ public class OsuServiceImpl implements OsuService {
                 .gt(OsuCookie::getExpireAt, System.currentTimeMillis())
                 .orderByDesc(OsuCookie::getCreateTime)
                 .last("limit 1")
-                .one();
-
-        if (ObjectUtil.isNull(cookie)) {
-            cookie = login();
-        }
+                .oneOpt()
+                .orElseGet(login());
 
         int size = setIdList.size();
         CountDownLatch latch = new CountDownLatch(size);
