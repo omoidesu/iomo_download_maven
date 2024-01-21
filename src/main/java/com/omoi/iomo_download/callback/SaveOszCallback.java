@@ -3,10 +3,7 @@ package com.omoi.iomo_download.callback;
 import lombok.Builder;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import okhttp3.Call;
-import okhttp3.Callback;
-import okhttp3.Response;
-import okhttp3.ResponseBody;
+import okhttp3.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -27,6 +24,8 @@ import java.util.concurrent.CyclicBarrier;
 @Slf4j
 public class SaveOszCallback implements Callback {
     private CyclicBarrier barrier;
+    private String setId;
+    private OkHttpClient client;
     private Path savePath;
     private boolean success;
 
@@ -44,7 +43,8 @@ public class SaveOszCallback implements Callback {
      */
     @Override
     public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
-        log.info("download osz code: {}, url: {}", response.code(), response.request().url());
+        HttpUrl url = response.request().url();
+        log.info("download osz code: {}, url: {}", response.code(), url);
         log.info("save path: {}", this.savePath);
         if (response.code() == 200) {
             ResponseBody body = response.body();
@@ -55,6 +55,26 @@ public class SaveOszCallback implements Callback {
 
             Files.write(this.savePath, body.bytes(), StandardOpenOption.CREATE);
             this.awaitBarrier(true);
+        } else if (response.code() == 404) {
+            // ppy.sh禁止下载谱面，使用备用镜像
+            String mirrorUrl = "https://beatconnect.io/b/" + this.setId;
+            Request request = new Request.Builder()
+                    .url(mirrorUrl)
+                    .build();
+            try (Response newResponse = this.client.newCall(request).execute()) {
+                if (newResponse.code() == 200) {
+                    ResponseBody body = newResponse.body();
+                    if (body == null) {
+                        this.awaitBarrier(false);
+                        return;
+                    }
+
+                    Files.write(this.savePath, body.bytes(), StandardOpenOption.CREATE);
+                    this.awaitBarrier(true);
+                } else {
+                    this.awaitBarrier(false);
+                }
+            }
         } else {
             this.awaitBarrier(false);
         }

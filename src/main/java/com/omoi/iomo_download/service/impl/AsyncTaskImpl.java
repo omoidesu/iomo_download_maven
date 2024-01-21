@@ -78,6 +78,8 @@ public class AsyncTaskImpl implements AsyncTask {
         SaveOszCallback callback = SaveOszCallback.builder()
                 .savePath(savePath)
                 .barrier(barrier)
+                .setId(setId)
+                .client(client)
                 .build();
 
         // 发送请求
