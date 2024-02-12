@@ -16,6 +16,10 @@ import okhttp3.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import ws.schild.jave.Encoder;
+import ws.schild.jave.MultimediaObject;
+import ws.schild.jave.encode.AudioAttributes;
+import ws.schild.jave.encode.EncodingAttributes;
 
 import java.io.File;
 import java.io.IOException;
@@ -128,12 +132,36 @@ public class AsyncTaskImpl implements AsyncTask {
             return CompletableFuture.completedFuture(null);
         }
 
+        if (targetFile.getName().endsWith(".ogg")) {
+            File mp3File = new File(targetFile.getAbsolutePath().replace(".ogg", ".mp3"));
+
+            // ogg转mp3
+            AudioAttributes audioAttr = new AudioAttributes();
+            audioAttr.setCodec("libmp3lame");
+            audioAttr.setBitRate(128000);
+            audioAttr.setChannels(2);
+            audioAttr.setSamplingRate(44100);
+
+            EncodingAttributes attributes = new EncodingAttributes();
+            attributes.setOutputFormat("mp3");
+            attributes.setInputFormat("ogg");
+            attributes.setAudioAttributes(audioAttr);
+
+            Encoder encoder = new Encoder();
+            try {
+                encoder.encode(new MultimediaObject(targetFile), mp3File, attributes);
+                targetFile = mp3File;
+            } catch (Exception e) {
+                throw new ServiceException("ogg转mp3失败");
+            }
+        }
+
         // 上传到kook
         OkHttpClient client = new OkHttpClient();
 
         MultipartBody body = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("file", targetFileName, RequestBody.Companion.create(targetFile, MediaType.parse("multipart/form-data")))
+                .addFormDataPart("file", targetFile.getName(), RequestBody.Companion.create(targetFile, MediaType.parse("multipart/form-data")))
                 .build();
 
         Request request = new Request.Builder()
